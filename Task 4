@@ -1,0 +1,69 @@
+import pandas as pd
+import zipfile
+import requests
+from io import BytesIO
+
+# Download the dataset
+url = 'https://files.grouplens.org/datasets/movielens/ml-latest-small.zip'
+response = requests.get(url)
+zip_file = zipfile.ZipFile(BytesIO(response.content))
+
+# Extract the specific file from the zip archive
+zip_file.extract('ml-latest-small/ratings.csv')
+zip_file.extract('ml-latest-small/movies.csv')
+
+# Load the ratings and movies data
+ratings = pd.read_csv('ml-latest-small/ratings.csv')
+movies = pd.read_csv('ml-latest-small/movies.csv')
+
+from surprise import Dataset, Reader
+from surprise.model_selection import train_test_split
+
+# Define a reader for the dataset
+reader = Reader(rating_scale=(0.5, 5.0))
+
+# Load the dataset
+data = Dataset.load_from_df(ratings[['userId', 'movieId', 'rating']], reader)
+
+# Split the dataset into train and test sets
+trainset, testset = train_test_split(data, test_size=0.25)
+
+from surprise import SVD
+from surprise import accuracy
+
+# Train the SVD algorithm on the trainset
+algo = SVD()
+algo.fit(trainset)
+
+# Predict ratings for the testset
+predictions = algo.test(testset)
+
+# Calculate and print RMSE
+accuracy.rmse(predictions)
+
+def get_movie_name(movie_id):
+    return movies[movies['movieId'] == movie_id]['title'].values[0]
+
+def recommend_movies(algo, user_id, num_recommendations=5):
+    # Get a list of all movie IDs
+    movie_ids = ratings['movieId'].unique()
+    
+    # Predict ratings for all movies for the given user
+    user_ratings = [(movie_id, algo.predict(user_id, movie_id).est) for movie_id in movie_ids]
+    
+    # Sort the ratings in descending order and get the top recommendations
+    user_ratings.sort(key=lambda x: x[1], reverse=True)
+    
+    # Get the top N recommended movie IDs
+    top_movie_ids = [movie_id for movie_id, rating in user_ratings[:num_recommendations]]
+    
+    # Get the movie names for the top recommendations
+    top_movies = [get_movie_name(movie_id) for movie_id in top_movie_ids]
+    
+    return top_movies
+
+# Recommend movies for a specific user (e.g., user ID 1)
+user_id = 1
+recommended_movies = recommend_movies(algo, user_id)
+print("Recommended Movies for User ID {}: {}".format(user_id, recommended_movies))
+
